@@ -1,5 +1,0 @@
-build-essential
-ca-certificates
-cmake
-curl
-sudo
