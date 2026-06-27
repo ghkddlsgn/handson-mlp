@@ -24,6 +24,7 @@ dependencies = [
     "torchmetrics>=1.9.0",
     "torchvision>=0.27.0",
     "transformers>=5.11.0",
+    "trl>=1.6.0",
     "xgboost>=3.2.0",
 ]
 
