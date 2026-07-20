@@ -4,12 +4,25 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, dataloader
 from torch import Tensor
 from practice.diffusion.inhu_res_unet import InhuResUnet
+from practice.diffusion.image_noise_generator import get_a_t_bar
+import math
+
+from typing import Any, TypedDict
+class InhuDiffusionCheckpoint(TypedDict):
+    epoch: int
+    best_epoch: int
+    model_state_dict: dict[str, torch.Tensor]
+    optimizer_state_dict: dict[str, Any]
+    best_val_loss: float
+    history: dict[str, list[float]]
+    total_timestep: int
+    time_dim: int
+
 
 class InhuDiffusionModel(nn.Module):
-    def __init__(self, unet:InhuResUnet, input_dim:int, output_dim:int, time_dim:int=256, dropout:float=0.1, num_groups:int=8, total_timestep:int=4000):
+    def __init__(self, unet:InhuResUnet, time_dim:int=256, total_timestep:int=4000):
         super().__init__()
-        self.s:float = 0.008
-        self.b_max:float = 0.999
+
         self.total_timestep = total_timestep
         
         self.time_dim = time_dim
@@ -20,38 +33,35 @@ class InhuDiffusionModel(nn.Module):
         
         self.unet:InhuResUnet = unet
         
-    #noise_image = [b, rgb, w, h], time_steps[b, image, time_steps]
-    def forward(self, noise_image:Tensor, time_steps:Tensor):
-        embeded_time = self.time_mlp(self.sinusoidal_embedding(time_steps)) #[B, time_dim]
-        pred_noise = self.unet(noise_image, embeded_time)
-        a_t_bar = self.get_a_t_bar(time_steps)
-        pred_original_image:Tensor = self.get_original_image(pred_noise, noise_image, a_t_bar)
-    
-    def sinusoidal_embedding(self, time_steps: Tensor) -> Tensor:
+    #noise_image = [b, rgb, w, h], time_steps[b]
+    def forward(self, noised_image:Tensor, time_steps:Tensor):
+        embeded_time = self.time_mlp(self.sinusoidal_embedding(time_steps)) #[B]
+        pred_noise = self.unet(noised_image, embeded_time)
+        a_t_bar = get_a_t_bar(time_steps, self.total_timestep)
+        pred_original_image:Tensor = self.get_original_image(pred_noise, noised_image, a_t_bar)
+        
+        return pred_noise, pred_original_image
+            
+    def sinusoidal_embedding(self, time_steps: Tensor) -> Tensor: #[b, time_embed]
         half = self.time_dim // 2
-        freqs = torch.exp(-torch.arange(half, device=time_steps.device) * (torch.log(torch.tensor(10000.0)) / (half - 1)))
+        freqs = torch.exp(-torch.arange(half, device=time_steps.device) * math.log(10000.0) / (half - 1))
         args = time_steps[:, None].float() * freqs[None, :]
         return torch.cat([torch.sin(args), torch.cos(args)], dim=-1)
     
-    #predicted_noise = [b, rgb, w, h], noised_image = same, a_t_bar = [b,image,time_steps]
-    def get_original_image(self, predicted_noise:Tensor, noised_image:Tensor, a_t_bar:Tensor) -> Tensor:
+    #predicted_noise = [b, rgb, w, h], noised_image = same, a_t_bar = [b]
+    def get_original_image(self, predicted_noise:Tensor, noised_image:Tensor, a_t_bar:Tensor)-> Tensor:
+        a_t_bar = a_t_bar.to(device=noised_image.device, dtype=noised_image.dtype)
+        a_t_bar = a_t_bar[:, None, None, None]
         original_image:Tensor = (noised_image - torch.sqrt(1 - a_t_bar) * predicted_noise) / torch.sqrt(a_t_bar)
         return original_image
+
+    def generate_image(self, image_size:list[int], steps:int = 40, seed:int=42) -> Tensor:
+        torch.manual_seed(seed)
+        device = next(self.parameters()).device
+        time_steps = torch.linspace(self.total_timestep - 1, 0, steps, dtype=torch.long, device=device)
         
-    #generate noise image --------------------------------------
-    def get_noised_image(self, target_time_steps:Tensor, original_image:Tensor, 
-                         noise:Tensor, a_t_bar:Tensor) -> Tensor:
-        a:Tensor = a_t_bar
-        results:Tensor = original_image * torch.sqrt(a) + (torch.sqrt(1 - a) * noise)
-        return results
-    
-    def cos_func(self, time_steps:Tensor) -> Tensor:
-        nominator = (time_steps / self.total_timestep + self.s) * torch.pi
-        denominator = (1 + self.s) * 2
-        return torch.cos(nominator / denominator) ** 2
-    
-    def get_a_t_bar(self, time_steps:Tensor) -> Tensor:
-        return self.cos_func(time_steps) / self.cos_func(torch.zeros_like(time_steps))
-    
-    def get_b_t(self, time_steps:Tensor, a_t_bar:Tensor, a_t_bar_past:Tensor) -> Tensor:
-        return 1 - (a_t_bar / a_t_bar_past)
+        current_image = torch.randn(image_size, device=device) #start from pure noise
+        for time in time_steps:
+            pred_noise, current_image = self.forward(current_image, time)
+        
+        return current_image
