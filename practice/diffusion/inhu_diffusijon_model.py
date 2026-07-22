@@ -2,9 +2,10 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from practice.diffusion.inhu_res_unet import InhuResUnet
+from practice.diffusion.inhu_diffusion_config import DIFFUSION_MODEL_CONFIG
 import math
 import matplotlib.pyplot as plt
-from typing import Any, TypedDict, Tuple, Optional
+from typing import Any, TypedDict, Tuple, Optional, Sequence
 
 NOISE_OFFSET: float = 0.008
 EPS:float = 1e-8
@@ -21,7 +22,12 @@ class InhuDiffusionCheckpoint(TypedDict):
 
 
 class InhuDiffusionModel(nn.Module):
-    def __init__(self, unet:InhuResUnet, time_dim:int=256, total_timestep:int=4000):
+    def __init__(
+        self,
+        unet: InhuResUnet,
+        time_dim: int = DIFFUSION_MODEL_CONFIG["TIME_DIM"],
+        total_timestep: int = DIFFUSION_MODEL_CONFIG["TOTAL_TIME"],
+    ):
         super().__init__()
 
         self.total_timestep = total_timestep
@@ -116,7 +122,10 @@ class InhuDiffusionModel(nn.Module):
             
         return pred_original_image_history, step_history
 
-    def show_tensor_image(self, image_list:list[Tensor], max_col:int = 5, step:Optional[list[int]] = None):
+    def show_tensor_image(self, image_list:Sequence[Tensor] | tuple[list[Tensor], list[Tensor]], 
+                          max_col:int = 5, step:Optional[list[int]] = None, titles:Optional[Sequence[str]] = None):
+        if isinstance(image_list, tuple):
+            image_list = image_list[0]
 
         image_count = len(image_list)
         col_count = min(max_col, image_count)
@@ -136,6 +145,9 @@ class InhuDiffusionModel(nn.Module):
         if step is None:
             step = [idx for idx in range(len(image_list))]
 
+        if titles is not None and len(titles) != image_count:
+            raise ValueError("titles must contain one title for each image")
+
         for idx, image in enumerate(image_list):
             image = image.detach().cpu()
 
@@ -151,7 +163,7 @@ class InhuDiffusionModel(nn.Module):
             image = image.clamp(0, 1)
 
             axes[idx].imshow(image)
-            axes[idx].set_title(f"{step[idx]}")
+            axes[idx].set_title(titles[idx] if titles is not None else f"{step[idx]}")
             axes[idx].axis("off")
 
         # hide empty subplots

@@ -2,11 +2,14 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
+from typing import Optional, Sequence
+
+from practice.diffusion.inhu_diffusion_config import DIFFUSION_MODEL_CONFIG
 
 
 
 class InhuResBlock(nn.Module):
-    def __init__(self, input_dim:int, output_dim:int, time_dim:int=256, dropout:float=0.1, num_groups:int=8, num_heads:int = 0):
+    def __init__(self, input_dim:int, output_dim:int, time_dim:int=DIFFUSION_MODEL_CONFIG["TIME_DIM"], dropout:float=0.1, num_groups:int=8, num_heads:int = 0):
         super().__init__()
         if input_dim % num_groups != 0:
             raise ValueError(f"input_dim:{input_dim} % norm_groups:{num_groups} != 0")
@@ -82,9 +85,12 @@ class InhuUpsample(nn.Module):
         return x
 
 class InhuResUnet(nn.Module):
-    def __init__(self, time_dim:int = 256, image_dim:int = 3, channels:list[int] = [64, 128, 256, 512, 512, 512, 1024], 
+    def __init__(self, time_dim:int = DIFFUSION_MODEL_CONFIG["TIME_DIM"], image_dim:int = 3, channels:Optional[Sequence[int]] = None,
                  attention_start_idx:int = 4, num_heads:int = 8, dropout:float = 0.1, num_groups:int = 8):
         super().__init__()
+
+        if channels is None:
+            channels = DIFFUSION_MODEL_CONFIG["CHANNEL"]
         
         no_attention = not ( 0 <= attention_start_idx < len(channels) - 1)
 
