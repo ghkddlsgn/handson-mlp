@@ -134,8 +134,15 @@ def assign_anchor_to_bbox(ground_truth:Tensor, anchors:Tensor, device, iou_thres
 def offset_boxes(anchors:Tensor, assigned_bb:Tensor, eps=1e-6):
     c_anc = box_corner_to_center(anchors)
     c_assigned_bb = box_corner_to_center(assigned_bb)
-    offset_xy = (10 * c_assigned_bb[:, 2:]) / c_anc[:, 2:]
-    offset_wh = 5 * torch.log(eps + c_assigned_bb[:, :2] / c_anc[:, 2:])
+    offset_xy = (
+        10
+        * (c_assigned_bb[:, :2] - c_anc[:, :2])
+        / c_anc[:, 2:]
+    )
+
+    offset_wh = 5 * torch.log(
+        eps + c_assigned_bb[:, 2:] / c_anc[:, 2:]
+    )
     offset = torch.cat([offset_xy, offset_wh], dim=1)
     return offset
 

@@ -1,8 +1,10 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from  torch import Tensor
+from torch.utils.data import DataLoader
 
-from study.d_01object_detect.bounding_box import multibox_prior
+from study.d_01object_detect.bounding_box import *
 
 class down_sample_blk(nn.Module):
     def __init__(self, in_channels:int, out_channels:int):
@@ -57,9 +59,9 @@ class SSD(nn.Module):
         super().__init__()
         
         num_anchors = [len(size) + len(ratio) - 1 for size, ratio in zip(sizes, ratios)]
-        self.layers = [
+        self.layers = nn.ModuleList([
             SSD_SubBlock(Basenet_filters, sizes[0], ratios[0], num_classes), #basenet
-        ]
+        ])
         for i in range(1, len(num_anchors)):
             self.layers.append(
                 SSD_SubBlock([downsample_filters[i-1], downsample_filters[i-1]], sizes[i], ratios[i], num_classes)
@@ -75,3 +77,24 @@ class SSD(nn.Module):
             bbox_preds.append(bbox)
         
         return anchors, cls_preds, bbox_preds
+    
+    def begin_train(self, train_loader:DataLoader, test_loader:DataLoader, optimizer, epoch:int = 10):
+        device = self.device
+        train_loss_history:list[float] = []
+        test_loss_history:list[float] = []
+        
+        for i in range(epoch):
+            self.train()
+            for img, label in train_loader:
+                img:Tensor = img.to(device)
+                label:Tensor = label.to(device)
+                pred_anchors, pred_cls, pred_label = self(img)
+    
+    def calc_loss(self, img:Tensor, label:Tensor):
+        anchors, cls_preds, bbox_preds = self(img)
+        anchors = torch.concat(anchors, dim=1)
+        # (B, anchor * class, H, W) -> (B, H*W*anchor, class)
+        cls_preds = torch.cat([pred.permute(0,2,3,1).reshape(img.shape[0], -1, 2) for pred in cls_preds], dim=1)
+        bbox_preds = torch.cat([])
+                
+                
