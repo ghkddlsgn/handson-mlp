@@ -1,10 +1,3 @@
-# import kagglehub
-
-# # Download latest version
-# path = kagglehub.dataset_download("aladdinpersson/pascal-voc-dataset-used-in-yolov3-video", output_dir="./datasets/yolo",)
-
-# print("Path to dataset files:", path)
-
 from typing import Any
 
 import numpy as np
@@ -15,7 +8,7 @@ from torch import Tensor
 
 from PIL import Image, ImageFile
 from torch.utils.data import Dataset, DataLoader
-from utils import iou_width_hegith as iou, non_max_suppresion as nms
+from utils import iou_width_height as iou
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -58,3 +51,25 @@ class YOLODataset(Dataset):
             for anchor_idx in anchors_indices:
                 scale_idx = anchor_idx // self.num_anchors_per_scale #0,1,2
                 anchor_on_scale = anchor_idx % self.num_anchors_per_scale #0,1,2
+                S = self.S[scale_idx]
+                i, j = int(S*y), int(S*x) # if x=0.5, s=13 -> int(6.5) = 6 (cell x grid location)
+                anchor_taken = targets[scale_idx][anchor_on_scale, i, j, 0]
+                
+                if not anchor_taken and not has_anchor[scale_idx]:
+                    targets[scale_idx][anchor_on_scale, i, j, 0] = 1
+                    x_cell, y_cell = S*x - j, S*y - i # 6.5 - 6 = 0.5, switching abs coordinate to cell's relative coordinate(0~1)
+                    width_cell, height_cell = (
+                        width * S, #S = 13, width=0.5, 6.5
+                        height * S
+                    )
+                    box_coordinates:Tensor = torch.tensor(
+                        [x_cell, y_cell, width_cell, height_cell]
+                    )
+                    targets[scale_idx][anchor_on_scale, i, j, 1:5] = box_coordinates
+                    targets[scale_idx][anchor_on_scale, i, j, 5] = int(class_label)
+                    has_anchor[scale_idx] = True
+                
+                elif not anchor_taken and iou_anchors[anchor_idx] > self.ignore_iou_thresh:
+                    targets[scale_idx][anchor_on_scale, i, j, 0] = -1
+        
+        return image, tuple(targets)
